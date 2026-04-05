@@ -235,7 +235,7 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
     // sanitise bad bridge pref values
     _prefs->bridge_enabled = constrain(_prefs->bridge_enabled, 0, 1);
     _prefs->bridge_delay = constrain(_prefs->bridge_delay, 0, 10000);
-    _prefs->bridge_pkt_src = constrain(_prefs->bridge_pkt_src, 0, 1);
+    _prefs->bridge_pkt_src = constrain(_prefs->bridge_pkt_src, 0, 2);
     _prefs->bridge_baud = constrain(_prefs->bridge_baud, 9600, BRIDGE_MAX_BAUD);
     _prefs->bridge_channel = constrain(_prefs->bridge_channel, 0, 14);
 
@@ -840,7 +840,13 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
       } else if (memcmp(config, "bridge.delay", 12) == 0) {
         sprintf(reply, "> %d", (uint32_t)_prefs->bridge_delay);
       } else if (memcmp(config, "bridge.source", 13) == 0) {
-        sprintf(reply, "> %s", _prefs->bridge_pkt_src ? "logRx" : "logTx");
+        const char* src = "logTx";
+        if (_prefs->bridge_pkt_src == 1) {
+          src = "logRx";
+        } else if (_prefs->bridge_pkt_src == 2) {
+          src = "logRxTx";
+        }
+        sprintf(reply, "> %s", src);
 #endif
 #ifdef WITH_RS232_BRIDGE
       } else if (memcmp(config, "bridge.baud", 11) == 0) {
@@ -1261,9 +1267,22 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
           strcpy(reply, "Error: delay must be between 0-10000 ms");
         }
       } else if (memcmp(config, "bridge.source ", 14) == 0) {
-        _prefs->bridge_pkt_src = memcmp(&config[14], "rx", 2) == 0;
-        savePrefs();
-        strcpy(reply, "OK");
+        const char* src = &config[14];
+        if (strcmp(src, "rxtx") == 0 || strcmp(src, "logRxTx") == 0 || strcmp(src, "both") == 0) {
+          _prefs->bridge_pkt_src = 2;
+          savePrefs();
+          strcpy(reply, "OK");
+        } else if (strcmp(src, "tx") == 0 || strcmp(src, "logTx") == 0) {
+          _prefs->bridge_pkt_src = 0;
+          savePrefs();
+          strcpy(reply, "OK");
+        } else if (strcmp(src, "rx") == 0 || strcmp(src, "logRx") == 0) {
+          _prefs->bridge_pkt_src = 1;
+          savePrefs();
+          strcpy(reply, "OK");
+        } else {
+          strcpy(reply, "Error: source must be tx|rx|rxtx (or logTx|logRx|logRxTx)");
+        }
 #endif
 #ifdef WITH_RS232_BRIDGE
       } else if (memcmp(config, "bridge.baud ", 12) == 0) {

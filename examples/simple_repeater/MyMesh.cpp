@@ -505,7 +505,7 @@ void MyMesh::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
 
 void MyMesh::logRx(mesh::Packet *pkt, int len, float score) {
 #ifdef WITH_BRIDGE
-  if (_prefs.bridge_pkt_src == 1) {
+  if (_prefs.bridge_pkt_src == 1 || _prefs.bridge_pkt_src == 2) {
     if (bridge) bridge->onPacketReceived(pkt);
   }
 #endif
@@ -531,7 +531,7 @@ void MyMesh::logRx(mesh::Packet *pkt, int len, float score) {
 
 void MyMesh::logTx(mesh::Packet *pkt, int len) {
 #ifdef WITH_BRIDGE
-  if (_prefs.bridge_pkt_src == 0) {
+  if (_prefs.bridge_pkt_src == 0 || _prefs.bridge_pkt_src == 2) {
     if (bridge) bridge->sendPacket(pkt);
   }
 #endif

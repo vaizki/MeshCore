@@ -447,7 +447,7 @@ void MQTTBridge::begin() {
     _status_interval = 300000; // 5 minutes default
   }
 
-  // Check for configuration mismatch: bridge.source=tx but mqtt.tx=off
+  // Check for configuration mismatch: bridge.source includes tx but mqtt.tx=off
   checkConfigurationMismatch();
 
   MQTT_DEBUG_PRINTLN("Config: Origin=%s, IATA=%s, Device=%s", _origin, _iata, _device_id);
@@ -1757,11 +1757,11 @@ void MQTTBridge::setSlotCustomBroker(int slot_index, const char* host, uint16_t 
 // ---------------------------------------------------------------------------
 
 void MQTTBridge::checkConfigurationMismatch() {
-  // Check if bridge.source is set to tx (logTx) but mqtt.tx is disabled
-  if (_prefs->bridge_pkt_src == 0 && _packets_enabled && !_tx_enabled) {
+  // Check if bridge.source includes tx (logTx/logRxTx) but mqtt.tx is disabled
+  if ((_prefs->bridge_pkt_src == 0 || _prefs->bridge_pkt_src == 2) && _packets_enabled && !_tx_enabled) {
     unsigned long now = millis();
     if (_last_config_warning == 0 || (now - _last_config_warning > CONFIG_WARNING_INTERVAL)) {
-      MQTT_DEBUG_PRINTLN("MQTT: Configuration mismatch detected! bridge.source=tx (logTx) but mqtt.tx=off. Packets will not be published. Run 'set bridge.source rx' or 'set mqtt.tx on' to fix.");
+      MQTT_DEBUG_PRINTLN("MQTT: Configuration mismatch detected! bridge.source includes tx (logTx/logRxTx) but mqtt.tx=off. TX packets will not be published. Run 'set bridge.source rx' or 'set mqtt.tx on' to fix.");
       _last_config_warning = now;
     }
   } else {
