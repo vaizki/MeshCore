@@ -196,6 +196,8 @@ void CommonCLI::loadPrefs(FILESYSTEM* fs) {
 }
 
 void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
+  // Default to TX enabled when loading legacy preference files that don't include this field.
+  _prefs->radio_tx_enabled = 1;
 #if defined(RP2040_PLATFORM)
   File file = fs->open(filename, "r");
 #else
@@ -278,7 +280,11 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
     if (file.available() >= (int)sizeof(_prefs->radio_watchdog_minutes)) {
       file.read((uint8_t *)&_prefs->radio_watchdog_minutes, sizeof(_prefs->radio_watchdog_minutes)); // 316
     }
-    // next: 317
+    // Optional appended fields (read only if present)
+    if (file.available() >= (int)sizeof(_prefs->radio_tx_enabled)) {
+      file.read((uint8_t *)&_prefs->radio_tx_enabled, sizeof(_prefs->radio_tx_enabled)); // 317
+    }
+    // next: 318
 
     // sanitise bad pref values
     _prefs->rx_delay_base = constrain(_prefs->rx_delay_base, 0, 20.0f);
@@ -313,6 +319,7 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
     if (_prefs->radio_watchdog_minutes > 120) {
       _prefs->radio_watchdog_minutes = 5;
     }
+    _prefs->radio_tx_enabled = constrain(_prefs->radio_tx_enabled, 0, 1);
 
     file.close();
   }
@@ -401,7 +408,8 @@ void CommonCLI::savePrefs(FILESYSTEM* fs) {
     file.write((uint8_t *)&_prefs->snmp_enabled, sizeof(_prefs->snmp_enabled));                    // 291
     file.write((uint8_t *)&_prefs->snmp_community, sizeof(_prefs->snmp_community));                // 292
     file.write((uint8_t *)&_prefs->radio_watchdog_minutes, sizeof(_prefs->radio_watchdog_minutes)); // 316
-    // next: 317
+    file.write((uint8_t *)&_prefs->radio_tx_enabled, sizeof(_prefs->radio_tx_enabled));             // 317
+    // next: 318
 
     file.close();
   }

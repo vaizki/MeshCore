@@ -104,6 +104,7 @@ struct NodePrefs { // persisted to file
   uint8_t snmp_enabled;          // boolean: 0=off, 1=on
   char snmp_community[24];       // community string (default "public")
   uint8_t radio_watchdog_minutes; // 0=disabled, 1-120 minutes
+  uint8_t radio_tx_enabled;      // boolean: 0=off, 1=on
 };
 
 #ifdef WITH_MQTT_BRIDGE
@@ -272,6 +273,10 @@ public:
   };
 
   virtual void setRxBoostedGain(bool enable) {
+    // no op by default
+  };
+
+  virtual void setRadioTxEnabled(bool enable) {
     // no op by default
   };
 };

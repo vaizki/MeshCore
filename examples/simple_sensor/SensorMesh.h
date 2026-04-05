@@ -68,6 +68,7 @@ public:
   void eraseLogFile() override { }
   void dumpLogFile() override { }
   void setTxPower(int8_t power_dbm) override;
+  void setRadioTxEnabled(bool enable) override { mesh::Dispatcher::setRadioTxEnabled(enable); }
   void formatNeighborsReply(char *reply) override {
     strcpy(reply, "not supported");
   }

@@ -275,6 +275,20 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 
 ---
 
+#### View or change this node's radio transmit enable state
+**Usage:**
+- `get radio.tx`
+- `set radio.tx <state>`
+
+**Parameters:**
+  - `state`: `on`|`off`
+
+**Default:** `on` (observer builds may default to `off`)
+
+**Note:** `off` blocks all LoRa transmissions from this node (adverts, ACKs, replies, forwarding, etc.). This is different from `set repeat off`, which only disables forwarding.
+
+---
+
 ### System
 
 #### View or change this node's name
