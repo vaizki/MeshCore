@@ -103,6 +103,7 @@ struct NodePrefs { // persisted to file
   // SNMP settings (optional, only used when WITH_SNMP is defined)
   uint8_t snmp_enabled;          // boolean: 0=off, 1=on
   char snmp_community[24];       // community string (default "public")
+  uint8_t radio_tx_enabled;      // boolean: 0=off, 1=on
 };
 
 #ifdef WITH_MQTT_BRIDGE
@@ -271,6 +272,10 @@ public:
   };
 
   virtual void setRxBoostedGain(bool enable) {
+    // no op by default
+  };
+
+  virtual void setRadioTxEnabled(bool enable) {
     // no op by default
   };
 };
