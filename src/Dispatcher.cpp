@@ -248,6 +248,7 @@ void Dispatcher::processRecvPacket(Packet* pkt) {
 }
 
 void Dispatcher::checkSend() {
+  if (!_radio_tx_enabled) return;
   if (_mgr->getOutboundCount(_ms->getMillis()) == 0) return;  // nothing waiting to send
   if (!millisHasNowPassed(next_tx_time)) return;   // still in 'radio silence' phase (from airtime budget setting)
   if (_radio->isReceiving()) {   // LBT - check if radio is currently mid-receive, or if channel activity
@@ -333,7 +334,9 @@ void Dispatcher::releasePacket(Packet* packet) {
 }
 
 void Dispatcher::sendPacket(Packet* packet, uint8_t priority, uint32_t delay_millis) {
-  if (!Packet::isValidPathLen(packet->path_len) || packet->payload_len > MAX_PACKET_PAYLOAD) {
+  if (!_radio_tx_enabled) {
+    _mgr->free(packet);
+  } else if (!Packet::isValidPathLen(packet->path_len) || packet->payload_len > MAX_PACKET_PAYLOAD) {
     MESH_DEBUG_PRINTLN("%s Dispatcher::sendPacket(): ERROR: invalid packet... path_len=%d, payload_len=%d", getLogDateTime(), (uint32_t) packet->path_len, (uint32_t) packet->payload_len);
     _mgr->free(packet);
   } else {

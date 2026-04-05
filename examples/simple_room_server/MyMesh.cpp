@@ -641,6 +641,10 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   _prefs.bw = LORA_BW;
   _prefs.cr = LORA_CR;
   _prefs.tx_power_dbm = LORA_TX_POWER;
+  _prefs.radio_tx_enabled = 1;
+#ifdef RADIO_RX_ONLY_DEFAULT
+  _prefs.radio_tx_enabled = 0;
+#endif
   _prefs.disable_fwd = 1;
   _prefs.advert_interval = 1;        // default to 2 minutes for NEW installs
   _prefs.flood_advert_interval = 12; // 12 hours
@@ -697,6 +701,7 @@ void MyMesh::begin(FILESYSTEM *fs) {
   _fs = fs;
   // load persisted prefs
   _cli.loadPrefs(_fs);
+  setRadioTxEnabled(_prefs.radio_tx_enabled != 0);
 
   acl.load(_fs, self_id);
 
