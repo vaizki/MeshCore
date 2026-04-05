@@ -39,11 +39,11 @@ set wifi.ssid YourWiFiNetwork
 set wifi.pwd YourWiFiPassword
 ```
 
-**5. (Optional) Disable packet repeating**
+**5. (Optional) Force receive-only radio mode**
 
-If this observer is receive-only (e.g., using a PCB antenna in a location where repeating would be harmful), disable forwarding:
+If this observer uses a receive-only RF path (for example, an LNA-only front-end), disable all radio transmissions:
 ```bash
-set repeat off
+set radio.tx off
 ```
 
 **6. Reboot to connect**
@@ -201,7 +201,8 @@ The MQTT bridge comes with the following defaults for fresh installs:
 - **WiFi Power Save**: `none` (no power save)
 - **Timezone**: (blank — uses UTC until configured)
 - **Timezone Offset**: 0 (fallback, no offset)
-- **Repeat (forwarding)**: On (set `repeat off` for receive-only observers)
+- **Radio TX Enable**: `off` on observer builds with `RADIO_RX_ONLY_DEFAULT` (must be explicitly enabled if TX is needed)
+- **Repeat (forwarding)**: On (`set repeat off` only disables forwarding)
 
 ## CLI Commands
 
@@ -375,13 +376,15 @@ These are standard MeshCore commands, not MQTT-specific, but important for obser
 
 #### Get Commands
 - `get name` - Get device name
+- `get radio.tx` - Get radio transmit enable state (on/off)
 - `get repeat` - Get repeat (forwarding) status (on/off)
 - `get freq` - Get radio frequency
 - `get public.key` - Get device public key (for migration)
 
 #### Set Commands
 - `set name <name>` - Set device name (also sets MQTT origin)
-- `set repeat on|off` - Enable/disable packet forwarding (use `off` for receive-only observers)
+- `set radio.tx on|off` - Enable/disable all LoRa transmissions (use `off` for receive-only hardware)
+- `set repeat on|off` - Enable/disable packet forwarding only
 - `set prv.key <64-hex-char-key>` - Restore private key (for migrating identity from another device)
 - `set tx <dBm>` - Set transmit power
 
@@ -592,6 +595,7 @@ set timezone.offset -5
 
 For receive-only observers (e.g., using a PCB antenna or in a location where repeating is not desired):
 ```
+set radio.tx off
 set repeat off
 ```
 

@@ -125,6 +125,7 @@ class Dispatcher {
   unsigned long radio_nonrx_start;
   unsigned long next_floor_calib_time, next_agc_reset_time;
   bool  prev_isrecv_mode;
+  bool _radio_tx_enabled;
   uint32_t n_sent_flood, n_sent_direct;
   uint32_t n_recv_flood, n_recv_direct;
 
@@ -147,6 +148,7 @@ protected:
     _err_flags = 0;
     radio_nonrx_start = 0;
     prev_isrecv_mode = true;
+    _radio_tx_enabled = true;
   }
 
   virtual DispatcherAction onRecvPacket(Packet* pkt) = 0;
@@ -172,6 +174,8 @@ public:
   Packet* obtainNewPacket();
   void releasePacket(Packet* packet);
   void sendPacket(Packet* packet, uint8_t priority, uint32_t delay_millis=0);
+  void setRadioTxEnabled(bool enable) { _radio_tx_enabled = enable; }
+  bool isRadioTxEnabled() const { return _radio_tx_enabled; }
 
   unsigned long getTotalAirTime() const { return total_air_time; }  // in milliseconds
   unsigned long getReceiveAirTime() const {return rx_air_time; }
