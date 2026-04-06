@@ -1,0 +1,84 @@
+<div class="instructions">
+  <h2>What are these?</h2>
+  <p>These are the firmware builds for the MeshCore repeater + observer setup for Finland with sane defaults. They allow
+    two major use cases</p>
+  <ul>
+    <li>Repeater that also acts as an observer, uploading packets via MQTT, removing the need for an extra observer node
+    </li>
+    <li>Observer that never transmits, only receives and uploads to MQTT, good for "super sniffers" that cannot transmit
+    </li>
+  </ul>
+  <p>By default these upload all received packets to letsmesh analyzer targets. If you want to upload to CoreScope,
+    contact Vaizki on Discord for integration details.</p>
+
+    <h2>How to use these artifacts</h2>
+  <ul>
+    <li>Choose your row by env base name.</li>
+    <li>Open <code>info.txt</code> first to verify applied flags and notes.</li>
+    <li>Use normal firmware for regular updates; use merged firmware when full flash layout update is required.</li>
+  </ul>
+  <div class="meta">Index generated at {{GENERATED_UTC}} by <code>{{SCRIPT_NAME}}</code>.</div>
+
+  <h2>Differences from stock repeater firmware</h2>
+  <ul>
+    <li>Source and instructions at <a href="https://github.com/vaizki/MeshCore/blob/fi-repeater-observer/FINLAND_MQTT_BRIDGE.md">Vaizki's MeshCore fork on GitHub</a></li>
+    <li>Based on agessaman's repeater-observer firmware that provides MQTT bridging, massive thanks to him!</li>
+    <li>Receive-only mode on by default when flashed to new device</li>
+    <li>EU Narrow style parameters: 869.6179809 MHz, 62.5 kHz, SF8, CR8 with AF 9 (10% duty-cycle)</li>
+  </ul>
+  <h2>Steps to get it working</h2>
+  <ol>
+    <li>Save your current private key before flashing!</li>
+    <li>Flash the firmware to your device (first time use the merged firmware)</li>
+    <li>Connect to the device console via serial (115200 baud) or repeater login</li>
+    <li>Set the device name and IATA/location code</li>
+    <li>Set lat &amp; lon to get on the map</li>
+    <li>Set the hash path mode to 1 for 2-byte IDs if in HEL region</li>
+    <li>Set the WiFi credentials</li>
+    <li>Reboot the device</li>
+    <li>Verify the device is connected to WiFi and MQTT</li>
+    <li>Verify the device is receiving packets from the mesh and uploading to MQTT</li>
+    <li>Enable TX and repeat (forwarding) if you are setting up a repeater</li>
+    <li>Reboot for MQTT settings to take effect</li>
+</ol>
+<h3>Example commands for a repeater</h3>
+<pre>
+  <code>
+    set prv.key &lt;your_64_hex_char_private_key&gt;
+    set name Banaanisatama-Repeater
+    set path.hash.mode 1
+    set mqtt.iata HEL
+    set lat 60.1
+    set lon 24.9
+    set wifi.ssid my-wifi-ssid
+    set wifi.pwd my-wifi-password
+    set mqtt.rx on
+    set mqtt.tx on
+    set radio.tx on
+    set repeat on
+    reboot
+  </code>
+</pre>
+  <p>After the repeater is running, good to <code>advert</code> once to get on the map.</p>
+  <pre>
+    <code>
+      advert.flood
+    </code>
+  </pre>
+
+  <h3>Example commands for an invisible &amp; silent observer</h3>
+  <pre>
+    <code>
+      set prv.key &lt;your_64_hex_char_private_key&gt;
+      set name Banaanisatama-Observer
+      set path.hash.mode 1
+      set mqtt.iata HEL
+      set wifi.ssid my-wifi-ssid
+      set wifi.pwd my-wifi-password
+      set mqtt.rx on
+      set mqtt.tx off
+      set radio.tx off
+      reboot
+    </code>
+  </pre>
+</div>
