@@ -35,7 +35,7 @@ if [ "${1:-}" = "help" ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ] || [ 
 fi
 
 get_observer_targets() {
-  pio project config | awk '/^env:/ {print $1}' | sed 's/^env://' | awk '/repeater_observer/'
+  pio project config | awk '/^env:/ {print $1}' | sed 's/^env://' | awk '/repeater_observer_mqtt$/'
 }
 
 clean_targets() {
