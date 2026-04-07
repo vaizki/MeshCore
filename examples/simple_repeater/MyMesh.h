@@ -23,6 +23,11 @@
 #define WITH_BRIDGE
 #endif
 
+#ifdef WITH_UDP_OBSERVER_BRIDGE
+#include "helpers/bridges/UDPObserverBridge.h"
+#define WITH_BRIDGE
+#endif
+
 #include <helpers/AdvertDataHelpers.h>
 #include <helpers/ArduinoHelpers.h>
 #include <helpers/ClientACL.h>
@@ -34,10 +39,6 @@
 #include <helpers/TxtDataHelpers.h>
 #include <helpers/RegionMap.h>
 #include "RateLimiter.h"
-
-#ifdef WITH_BRIDGE
-extern AbstractBridge* bridge;
-#endif
 
 struct RepeaterStats {
   uint16_t batt_milli_volts;
@@ -116,6 +117,12 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   RS232Bridge bridge;
 #elif defined(WITH_ESPNOW_BRIDGE)
   ESPNowBridge bridge;
+#elif defined(WITH_UDP_OBSERVER_BRIDGE)
+  UDPObserverBridge bridge;
+#endif
+
+#if defined(WITH_UDP_OBSERVER_BRIDGE)
+  void syncUdpObserverBridgeMetadata();
 #endif
 
   void putNeighbour(const mesh::Identity& id, uint32_t timestamp, float snr);
@@ -219,6 +226,11 @@ public:
 
 #if defined(WITH_BRIDGE)
   void setBridgeState(bool enable) override {
+#if defined(WITH_UDP_OBSERVER_BRIDGE)
+    if (enable) {
+      syncUdpObserverBridgeMetadata();
+    }
+#endif
     if (enable == bridge.isRunning()) return;
     if (enable)
     {
@@ -231,6 +243,9 @@ public:
   }
 
   void restartBridge() override {
+#if defined(WITH_UDP_OBSERVER_BRIDGE)
+    syncUdpObserverBridgeMetadata();
+#endif
     if (!bridge.isRunning()) return;
     bridge.end();
     bridge.begin();

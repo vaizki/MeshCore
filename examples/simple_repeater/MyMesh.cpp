@@ -456,7 +456,9 @@ void MyMesh::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
 }
 
 void MyMesh::logRx(mesh::Packet *pkt, int len, float score) {
-#ifdef WITH_BRIDGE
+#if defined(WITH_UDP_OBSERVER_BRIDGE)
+  bridge.onPacketReceived(pkt);
+#elif defined(WITH_BRIDGE)
   if (_prefs.bridge_pkt_src == 1) {
     bridge.sendPacket(pkt);
   }
@@ -482,7 +484,9 @@ void MyMesh::logRx(mesh::Packet *pkt, int len, float score) {
 }
 
 void MyMesh::logTx(mesh::Packet *pkt, int len) {
-#ifdef WITH_BRIDGE
+#if defined(WITH_UDP_OBSERVER_BRIDGE)
+  bridge.sendPacket(pkt);
+#elif defined(WITH_BRIDGE)
   if (_prefs.bridge_pkt_src == 0) {
     bridge.sendPacket(pkt);
   }
@@ -828,6 +832,18 @@ void MyMesh::sendNodeDiscoverReq() {
   }
 }
 
+#if defined(WITH_UDP_OBSERVER_BRIDGE)
+void MyMesh::syncUdpObserverBridgeMetadata() {
+  char device_id[65];
+  mesh::Utils::toHex(device_id, self_id.pub_key, PUB_KEY_SIZE);
+  bridge.setDeviceID(device_id);
+  bridge.setFirmwareVersion(getFirmwareVer());
+  bridge.setBoardModel(board.getManufacturerName());
+  bridge.setBuildDate(getBuildDate());
+  bridge.setStatsSources(this, _radio, &board, _ms);
+}
+#endif
+
 MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondClock &ms, mesh::RNG &rng,
                mesh::RTCClock &rtc, mesh::MeshTables &tables)
     : mesh::Mesh(radio, ms, rng, rtc, *new StaticPoolPacketManager(32), tables),
@@ -839,6 +855,9 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
 #endif
 #if defined(WITH_ESPNOW_BRIDGE)
       , bridge(&_prefs, _mgr, &rtc)
+#endif
+#if defined(WITH_UDP_OBSERVER_BRIDGE)
+      , bridge(&_prefs, _mgr, &rtc, &self_id)
 #endif
 {
   last_millis = 0;
@@ -889,6 +908,20 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
 
   _prefs.adc_multiplier = 0.0f; // 0.0f means use default board multiplier
 
+#if defined(WITH_UDP_OBSERVER_BRIDGE)
+  _prefs.mqtt_status_enabled = 1;
+  _prefs.mqtt_packets_enabled = 1;
+  _prefs.mqtt_raw_enabled = 0;
+  _prefs.mqtt_tx_enabled = 0;
+  _prefs.mqtt_rx_enabled = 1;
+  _prefs.mqtt_status_interval = 300000;
+  StrHelper::strncpy(_prefs.mqtt_origin, ADVERT_NAME, sizeof(_prefs.mqtt_origin));
+  _prefs.mqtt_iata[0] = '\0';
+  _prefs.udp_gw_host[0] = '\0';
+  _prefs.udp_gw_port = 0;
+  _prefs.udp_root_secret_hex[0] = '\0';
+#endif
+
   pending_discover_tag = 0;
   pending_discover_until = 0;
 }
@@ -898,12 +931,18 @@ void MyMesh::begin(FILESYSTEM *fs) {
   _fs = fs;
   // load persisted prefs
   _cli.loadPrefs(_fs);
+#if defined(WITH_UDP_OBSERVER_BRIDGE)
+  StrHelper::strncpy(_prefs.mqtt_origin, _prefs.node_name, sizeof(_prefs.mqtt_origin));
+#endif
   acl.load(_fs, self_id);
   // TODO: key_store.begin();
   region_map.load(_fs);
 
 #if defined(WITH_BRIDGE)
   if (_prefs.bridge_enabled) {
+#if defined(WITH_UDP_OBSERVER_BRIDGE)
+    syncUdpObserverBridgeMetadata();
+#endif
     bridge.begin();
   }
 #endif

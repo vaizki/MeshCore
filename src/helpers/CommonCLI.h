@@ -5,7 +5,7 @@
 #include <helpers/SensorManager.h>
 #include <helpers/ClientACL.h>
 
-#if defined(WITH_RS232_BRIDGE) || defined(WITH_ESPNOW_BRIDGE)
+#if defined(WITH_RS232_BRIDGE) || defined(WITH_ESPNOW_BRIDGE) || defined(WITH_UDP_OBSERVER_BRIDGE)
 #define WITH_BRIDGE
 #endif
 
@@ -59,6 +59,19 @@ struct NodePrefs { // persisted to file
   char owner_info[120];
   uint8_t path_hash_mode;   // which path mode to use when sending
   uint8_t loop_detect;
+#if defined(WITH_UDP_OBSERVER_BRIDGE)
+  uint8_t mqtt_status_enabled;
+  uint8_t mqtt_packets_enabled;
+  uint8_t mqtt_raw_enabled;
+  uint8_t mqtt_tx_enabled;   // 0=off, 1=on, 2=advert
+  uint8_t mqtt_rx_enabled;
+  uint32_t mqtt_status_interval;
+  char mqtt_origin[32];
+  char mqtt_iata[8];
+  char udp_gw_host[64];
+  uint16_t udp_gw_port;
+  char udp_root_secret_hex[65];
+#endif
 };
 
 class CommonCLICallbacks {

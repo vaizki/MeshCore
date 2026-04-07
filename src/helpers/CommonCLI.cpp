@@ -3,6 +3,9 @@
 #include "TxtDataHelpers.h"
 #include "AdvertDataHelpers.h"
 #include <RTClib.h>
+#if defined(WITH_UDP_OBSERVER_BRIDGE)
+#include <ctype.h>
+#endif
 
 #ifndef BRIDGE_MAX_BAUD
 #define BRIDGE_MAX_BAUD 115200
@@ -88,6 +91,36 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
     file.read((uint8_t *)&_prefs->adc_multiplier, sizeof(_prefs->adc_multiplier)); // 166
     file.read((uint8_t *)_prefs->owner_info, sizeof(_prefs->owner_info));  // 170
     // 290
+#if defined(WITH_UDP_OBSERVER_BRIDGE)
+    {
+      const int udp_prefs_tail = 180;
+      if (file.available() >= udp_prefs_tail) {
+        file.read((uint8_t *)&_prefs->mqtt_status_enabled, sizeof(_prefs->mqtt_status_enabled));
+        file.read((uint8_t *)&_prefs->mqtt_packets_enabled, sizeof(_prefs->mqtt_packets_enabled));
+        file.read((uint8_t *)&_prefs->mqtt_raw_enabled, sizeof(_prefs->mqtt_raw_enabled));
+        file.read((uint8_t *)&_prefs->mqtt_tx_enabled, sizeof(_prefs->mqtt_tx_enabled));
+        file.read((uint8_t *)&_prefs->mqtt_rx_enabled, sizeof(_prefs->mqtt_rx_enabled));
+        file.read((uint8_t *)&_prefs->mqtt_status_interval, sizeof(_prefs->mqtt_status_interval));
+        file.read((uint8_t *)_prefs->mqtt_origin, sizeof(_prefs->mqtt_origin));
+        file.read((uint8_t *)_prefs->mqtt_iata, sizeof(_prefs->mqtt_iata));
+        file.read((uint8_t *)_prefs->udp_gw_host, sizeof(_prefs->udp_gw_host));
+        file.read((uint8_t *)&_prefs->udp_gw_port, sizeof(_prefs->udp_gw_port));
+        file.read((uint8_t *)_prefs->udp_root_secret_hex, sizeof(_prefs->udp_root_secret_hex));
+      } else {
+        _prefs->mqtt_status_enabled = 1;
+        _prefs->mqtt_packets_enabled = 1;
+        _prefs->mqtt_raw_enabled = 0;
+        _prefs->mqtt_tx_enabled = 0;
+        _prefs->mqtt_rx_enabled = 1;
+        _prefs->mqtt_status_interval = 300000;
+        _prefs->mqtt_origin[0] = '\0';
+        _prefs->mqtt_iata[0] = '\0';
+        _prefs->udp_gw_host[0] = '\0';
+        _prefs->udp_gw_port = 0;
+        _prefs->udp_root_secret_hex[0] = '\0';
+      }
+    }
+#endif
 
     // sanitise bad pref values
     _prefs->rx_delay_base = constrain(_prefs->rx_delay_base, 0, 20.0f);
@@ -114,6 +147,17 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
 
     _prefs->gps_enabled = constrain(_prefs->gps_enabled, 0, 1);
     _prefs->advert_loc_policy = constrain(_prefs->advert_loc_policy, 0, 2);
+
+#if defined(WITH_UDP_OBSERVER_BRIDGE)
+    _prefs->mqtt_status_enabled = constrain(_prefs->mqtt_status_enabled, 0, 1);
+    _prefs->mqtt_packets_enabled = constrain(_prefs->mqtt_packets_enabled, 0, 1);
+    _prefs->mqtt_raw_enabled = constrain(_prefs->mqtt_raw_enabled, 0, 1);
+    _prefs->mqtt_rx_enabled = constrain(_prefs->mqtt_rx_enabled, 0, 1);
+    _prefs->mqtt_tx_enabled = constrain(_prefs->mqtt_tx_enabled, 0, 2);
+    if (_prefs->mqtt_status_interval < 60000) {
+      _prefs->mqtt_status_interval = 60000;
+    }
+#endif
 
     file.close();
   }
@@ -175,6 +219,19 @@ void CommonCLI::savePrefs(FILESYSTEM* fs) {
     file.write((uint8_t *)&_prefs->adc_multiplier, sizeof(_prefs->adc_multiplier));                 // 166
     file.write((uint8_t *)_prefs->owner_info, sizeof(_prefs->owner_info));  // 170
     // 290
+#if defined(WITH_UDP_OBSERVER_BRIDGE)
+    file.write((uint8_t *)&_prefs->mqtt_status_enabled, sizeof(_prefs->mqtt_status_enabled));
+    file.write((uint8_t *)&_prefs->mqtt_packets_enabled, sizeof(_prefs->mqtt_packets_enabled));
+    file.write((uint8_t *)&_prefs->mqtt_raw_enabled, sizeof(_prefs->mqtt_raw_enabled));
+    file.write((uint8_t *)&_prefs->mqtt_tx_enabled, sizeof(_prefs->mqtt_tx_enabled));
+    file.write((uint8_t *)&_prefs->mqtt_rx_enabled, sizeof(_prefs->mqtt_rx_enabled));
+    file.write((uint8_t *)&_prefs->mqtt_status_interval, sizeof(_prefs->mqtt_status_interval));
+    file.write((uint8_t *)_prefs->mqtt_origin, sizeof(_prefs->mqtt_origin));
+    file.write((uint8_t *)_prefs->mqtt_iata, sizeof(_prefs->mqtt_iata));
+    file.write((uint8_t *)_prefs->udp_gw_host, sizeof(_prefs->udp_gw_host));
+    file.write((uint8_t *)&_prefs->udp_gw_port, sizeof(_prefs->udp_gw_port));
+    file.write((uint8_t *)_prefs->udp_root_secret_hex, sizeof(_prefs->udp_root_secret_hex));
+#endif
 
     file.close();
   }
@@ -367,6 +424,8 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
                 "rs232"
 #elif WITH_ESPNOW_BRIDGE
                 "espnow"
+#elif defined(WITH_UDP_OBSERVER_BRIDGE)
+                "udp"
 #else
                 "none"
 #endif
@@ -388,6 +447,32 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         sprintf(reply, "> %d", (uint32_t)_prefs->bridge_channel);
       } else if (memcmp(config, "bridge.secret", 13) == 0) {
         sprintf(reply, "> %s", _prefs->bridge_secret);
+#endif
+#if defined(WITH_UDP_OBSERVER_BRIDGE)
+      } else if (memcmp(config, "mqtt.origin", 11) == 0) {
+        sprintf(reply, "> %s", _prefs->mqtt_origin);
+      } else if (memcmp(config, "mqtt.iata", 9) == 0) {
+        sprintf(reply, "> %s", _prefs->mqtt_iata);
+      } else if (memcmp(config, "mqtt.status", 11) == 0) {
+        sprintf(reply, "> %s", _prefs->mqtt_status_enabled ? "on" : "off");
+      } else if (memcmp(config, "mqtt.packets", 12) == 0) {
+        sprintf(reply, "> %s", _prefs->mqtt_packets_enabled ? "on" : "off");
+      } else if (memcmp(config, "mqtt.raw", 8) == 0) {
+        sprintf(reply, "> %s", _prefs->mqtt_raw_enabled ? "on" : "off");
+      } else if (memcmp(config, "mqtt.tx", 7) == 0) {
+        const char* tx_str = _prefs->mqtt_tx_enabled == 2 ? "advert" : (_prefs->mqtt_tx_enabled ? "on" : "off");
+        sprintf(reply, "> %s", tx_str);
+      } else if (memcmp(config, "mqtt.rx", 7) == 0) {
+        sprintf(reply, "> %s", _prefs->mqtt_rx_enabled ? "on" : "off");
+      } else if (memcmp(config, "mqtt.interval", 13) == 0) {
+        uint32_t minutes = (_prefs->mqtt_status_interval + 29999) / 60000;
+        sprintf(reply, "> %u minutes (%lu ms)", minutes, (unsigned long)_prefs->mqtt_status_interval);
+      } else if (memcmp(config, "udp.host", 8) == 0) {
+        sprintf(reply, "> %s", _prefs->udp_gw_host);
+      } else if (memcmp(config, "udp.port", 8) == 0) {
+        sprintf(reply, "> %u", (unsigned)_prefs->udp_gw_port);
+      } else if (memcmp(config, "udp.secret", 10) == 0) {
+        sprintf(reply, "> %s", _prefs->udp_root_secret_hex);
 #endif
       } else if (memcmp(config, "bootloader.ver", 14) == 0) {
       #ifdef NRF52_PLATFORM
@@ -670,6 +755,98 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         _callbacks->restartBridge();
         savePrefs();
         strcpy(reply, "OK");
+#endif
+#if defined(WITH_UDP_OBSERVER_BRIDGE)
+      } else if (memcmp(config, "mqtt.origin ", 12) == 0) {
+        StrHelper::strncpy(_prefs->mqtt_origin, &config[12], sizeof(_prefs->mqtt_origin));
+        savePrefs();
+        strcpy(reply, "OK");
+      } else if (memcmp(config, "mqtt.iata ", 10) == 0) {
+        StrHelper::strncpy(_prefs->mqtt_iata, &config[10], sizeof(_prefs->mqtt_iata));
+        for (int i = 0; _prefs->mqtt_iata[i]; i++) {
+          _prefs->mqtt_iata[i] = (char)toupper((unsigned char)_prefs->mqtt_iata[i]);
+        }
+        savePrefs();
+        _callbacks->restartBridge();
+        strcpy(reply, "OK");
+      } else if (memcmp(config, "mqtt.status ", 12) == 0) {
+        _prefs->mqtt_status_enabled = memcmp(&config[12], "on", 2) == 0;
+        savePrefs();
+        strcpy(reply, "OK");
+      } else if (memcmp(config, "mqtt.packets ", 13) == 0) {
+        _prefs->mqtt_packets_enabled = memcmp(&config[13], "on", 2) == 0;
+        savePrefs();
+        strcpy(reply, "OK");
+      } else if (memcmp(config, "mqtt.raw ", 9) == 0) {
+        _prefs->mqtt_raw_enabled = memcmp(&config[9], "on", 2) == 0;
+        savePrefs();
+        strcpy(reply, "OK");
+      } else if (memcmp(config, "mqtt.tx ", 8) == 0) {
+        if (memcmp(&config[8], "advert", 6) == 0) {
+          _prefs->mqtt_tx_enabled = 2;
+        } else {
+          _prefs->mqtt_tx_enabled = memcmp(&config[8], "on", 2) == 0 ? 1 : 0;
+        }
+        savePrefs();
+        strcpy(reply, "OK");
+      } else if (memcmp(config, "mqtt.rx ", 8) == 0) {
+        _prefs->mqtt_rx_enabled = memcmp(&config[8], "on", 2) == 0 ? 1 : 0;
+        savePrefs();
+        strcpy(reply, "OK");
+      } else if (memcmp(config, "mqtt.interval ", 14) == 0) {
+        uint32_t minutes = _atoi(&config[14]);
+        if (minutes >= 1 && minutes <= 60) {
+          _prefs->mqtt_status_interval = minutes * 60000;
+          savePrefs();
+          _callbacks->restartBridge();
+          sprintf(reply, "OK - interval %u min", (unsigned)minutes);
+        } else {
+          strcpy(reply, "Error: interval must be between 1-60 minutes");
+        }
+      } else if (memcmp(config, "udp.host ", 9) == 0) {
+        StrHelper::strncpy(_prefs->udp_gw_host, &config[9], sizeof(_prefs->udp_gw_host));
+        savePrefs();
+        _callbacks->restartBridge();
+        strcpy(reply, "OK");
+      } else if (memcmp(config, "udp.port ", 9) == 0) {
+        int p = atoi(&config[9]);
+        if (p > 0 && p <= 65535) {
+          _prefs->udp_gw_port = (uint16_t)p;
+          savePrefs();
+          _callbacks->restartBridge();
+          strcpy(reply, "OK");
+        } else {
+          strcpy(reply, "Error: udp.port must be 1-65535");
+        }
+      } else if (memcmp(config, "udp.secret ", 11) == 0) {
+        const char* s = &config[11];
+        if (*s == '\0') {
+          _prefs->udp_root_secret_hex[0] = '\0';
+          savePrefs();
+          _callbacks->restartBridge();
+          strcpy(reply, "OK");
+        } else {
+          int key_len = strlen(s);
+          if (key_len != 64) {
+            strcpy(reply, "Error: udp.secret must be 64 hex characters (or empty to clear)");
+          } else {
+            bool valid = true;
+            for (int i = 0; i < key_len; i++) {
+              if (!((s[i] >= '0' && s[i] <= '9') || (s[i] >= 'A' && s[i] <= 'F') || (s[i] >= 'a' && s[i] <= 'f'))) {
+                valid = false;
+                break;
+              }
+            }
+            if (!valid) {
+              strcpy(reply, "Error: udp.secret must be 64 hex characters");
+            } else {
+              StrHelper::strncpy(_prefs->udp_root_secret_hex, s, sizeof(_prefs->udp_root_secret_hex));
+              savePrefs();
+              _callbacks->restartBridge();
+              strcpy(reply, "OK");
+            }
+          }
+        }
 #endif
       } else if (memcmp(config, "adc.multiplier ", 15) == 0) {
         _prefs->adc_multiplier = atof(&config[15]);
