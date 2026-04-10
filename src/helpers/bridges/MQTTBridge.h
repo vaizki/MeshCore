@@ -336,6 +336,7 @@ public:
   static void formatMqttStatusReply(char* buf, size_t bufsize, const NodePrefs* prefs);
   static void formatSlotDiagReply(char* buf, size_t bufsize, int slot_index);
   static uint8_t getLastWifiDisconnectReason();
+  static int8_t getLastWifiStaRssi();
   static unsigned long getLastWifiDisconnectTime();
   static const char* wifiReasonStr(uint8_t reason);
   static const char* tlsErrorStr(int32_t err);

@@ -970,15 +970,16 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         } else {
 #ifdef WITH_MQTT_BRIDGE
           uint8_t reason = MQTTBridge::getLastWifiDisconnectReason();
+          int last_rssi = (int)MQTTBridge::getLastWifiStaRssi();
           if (reason != 0) {
             const char* desc = MQTTBridge::wifiReasonStr(reason);
             if (desc) {
-              sprintf(reply, "> %s: %s (reason: %d)", status_str, desc, reason);
+              sprintf(reply, "> %s: %s (reason: %d), last RSSI: %d dBm", status_str, desc, reason, last_rssi);
             } else {
-              sprintf(reply, "> %s: reason %d", status_str, reason);
+              sprintf(reply, "> %s: reason %d, last RSSI: %d dBm", status_str, reason, last_rssi);
             }
           } else {
-            sprintf(reply, "> %s (code: %d)", status_str, status);
+            sprintf(reply, "> %s (code: %d), last RSSI: %d dBm", status_str, status, last_rssi);
           }
 #else
           sprintf(reply, "> %s (code: %d)", status_str, status);

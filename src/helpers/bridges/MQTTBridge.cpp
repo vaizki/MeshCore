@@ -9,6 +9,7 @@
 #endif
 
 #ifdef ESP_PLATFORM
+#include <esp_idf_version.h>
 #include <esp_wifi.h>
 #include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
@@ -101,6 +102,75 @@ static unsigned long s_wifi_connected_at = 0;
 // Last WiFi disconnect reason (from ESP-IDF event). Used for get wifi.status diagnostics.
 static uint8_t s_wifi_disconnect_reason = 0;
 static unsigned long s_wifi_disconnect_time = 0;
+// Ignore disconnect events right after intentional teardown (hard recycle) — reason codes are often bogus (e.g. 202).
+static unsigned long s_wifi_suppress_disconnect_diag_until = 0;
+// Last STA RSSI from driver while associated (logWifiSnapshot) or from disconnect event (WiFi.RSSI() is often 0 when disassociated).
+static int8_t s_wifi_last_sta_rssi = 0;
+
+#if defined(WIFI_TRACE_DEBUG) && defined(ARDUINO)
+  // Dedicated WiFi trace logging so very noisy WiFi diagnostics can be enabled
+  // without relying on the broader MQTT debug stream.
+  #define WIFI_TRACE_PRINT(F, ...) do { if (Serial.availableForWrite() > 0) { Serial.printf("MQTT: WIFI_TRACE: " F, ##__VA_ARGS__); } } while(0)
+  #define WIFI_TRACE_PRINTLN(F, ...) do { if (Serial.availableForWrite() > 0) { Serial.printf("MQTT: WIFI_TRACE: " F "\n", ##__VA_ARGS__); } } while(0)
+#else
+  #define WIFI_TRACE_PRINT(...) {}
+  #define WIFI_TRACE_PRINTLN(...) {}
+#endif
+
+static const char* wifiStatusStr(wl_status_t status) {
+  switch (status) {
+    case WL_IDLE_STATUS:     return "idle";
+    case WL_NO_SSID_AVAIL:   return "no_ssid";
+    case WL_SCAN_COMPLETED:  return "scan_completed";
+    case WL_CONNECTED:       return "connected";
+    case WL_CONNECT_FAILED:  return "connect_failed";
+    case WL_CONNECTION_LOST: return "connection_lost";
+    case WL_DISCONNECTED:    return "disconnected";
+    default:                 return "unknown";
+  }
+}
+
+static const char* wifiPsPrefStr(uint8_t pref) {
+  switch (pref) {
+    case 1: return "none";
+    case 2: return "max";
+    default: return "min";
+  }
+}
+
+#ifdef ESP_PLATFORM
+static const char* wifiPsModeStr(wifi_ps_type_t mode) {
+  switch (mode) {
+    case WIFI_PS_NONE:      return "WIFI_PS_NONE";
+    case WIFI_PS_MIN_MODEM: return "WIFI_PS_MIN_MODEM";
+    case WIFI_PS_MAX_MODEM: return "WIFI_PS_MAX_MODEM";
+    default:                return "WIFI_PS_UNKNOWN";
+  }
+}
+
+static void logWifiSnapshot(const char* tag) {
+  wl_status_t status = WiFi.status();
+  int rssi_log;
+  if (status == WL_CONNECTED) {
+    rssi_log = (int)WiFi.RSSI();
+    s_wifi_last_sta_rssi = (int8_t)rssi_log;
+  } else {
+    rssi_log = (int)s_wifi_last_sta_rssi;
+  }
+  WIFI_TRACE_PRINTLN(
+      "%s status=%s(%d) mode=%d ssid='%s' local='%s' rssi=%d bssid=%s heap=%u int_heap=%u",
+      tag,
+      wifiStatusStr(status),
+      (int)status,
+      (int)WiFi.getMode(),
+      WiFi.SSID().c_str(),
+      WiFi.localIP().toString().c_str(),
+      rssi_log,
+      WiFi.BSSIDstr().c_str(),
+      (unsigned)ESP.getFreeHeap(),
+      (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+}
+#endif
 
 #ifdef MQTT_MEMORY_DEBUG
 // #region agent log
@@ -174,6 +244,7 @@ void MQTTBridge::formatMqttStatusReply(char* buf, size_t bufsize, const NodePref
 }
 
 uint8_t MQTTBridge::getLastWifiDisconnectReason() { return s_wifi_disconnect_reason; }
+int8_t MQTTBridge::getLastWifiStaRssi() { return s_wifi_last_sta_rssi; }
 unsigned long MQTTBridge::getLastWifiDisconnectTime() { return s_wifi_disconnect_time; }
 
 const char* MQTTBridge::wifiReasonStr(uint8_t reason) {
@@ -188,6 +259,9 @@ const char* MQTTBridge::wifiReasonStr(uint8_t reason) {
     case 200: return "signal lost";
     case 201: return "security mismatch";
     case 202: return "auth mode rejected";
+    case 203: return "association failed";
+    case 204: return "handshake timeout";
+    case 205: return "connection failed";
     default:  return nullptr;
   }
 }
@@ -680,37 +754,118 @@ void MQTTBridge::mqttTask(void* parameter) {
   vTaskDelete(nullptr);
 }
 
-void MQTTBridge::initializeWiFiInTask() {
-  MQTT_DEBUG_PRINTLN("Initializing WiFi in MQTT task...");
-
-  // Initialize WiFi
+// Stop STA, power down the WiFi peripheral, then bring STA back — closer to a cold boot
+// than esp_restart() and helps clear wedged supplicant/driver state after failed auth.
+static void mqttBridgeHardRecycleWiFiStation() {
+  s_wifi_suppress_disconnect_diag_until = millis() + 2000;
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+  vTaskDelay(pdMS_TO_TICKS(2000));
   WiFi.mode(WIFI_STA);
-
-  // Enable automatic reconnection - ESP32 will handle reconnection automatically
   WiFi.setAutoReconnect(true);
   WiFi.setAutoConnect(true);
+}
+
+void MQTTBridge::initializeWiFiInTask() {
+  MQTT_DEBUG_PRINTLN("Initializing WiFi in MQTT task...");
+  WIFI_TRACE_PRINTLN("initializeWiFiInTask() starting");
+  WIFI_TRACE_PRINTLN("prefs: ssid_len=%u pwd_len=%u powersave_pref=%s",
+      (unsigned)strlen(_prefs->wifi_ssid),
+      (unsigned)strlen(_prefs->wifi_password),
+      wifiPsPrefStr(_prefs->wifi_power_save));
+  #ifdef ESP_PLATFORM
+  logWifiSnapshot("before mode");
+  #endif
+
+  mqttBridgeHardRecycleWiFiStation();
+  WIFI_TRACE_PRINTLN("WiFi hard recycle done (STA mode, auto-reconnect on)");
 
   // Set up WiFi event handlers for better diagnostics and immediate disconnection detection
   WiFi.onEvent([this](WiFiEvent_t event, WiFiEventInfo_t info) {
+    WIFI_TRACE_PRINTLN("event=%d status=%s(%d)", (int)event, wifiStatusStr(WiFi.status()), (int)WiFi.status());
     switch(event) {
+      case ARDUINO_EVENT_WIFI_READY:
+        WIFI_TRACE_PRINTLN("WIFI_READY");
+        break;
+      case ARDUINO_EVENT_WIFI_STA_START:
+        WIFI_TRACE_PRINTLN("STA_START");
+        break;
+      case ARDUINO_EVENT_WIFI_STA_STOP:
+        WIFI_TRACE_PRINTLN("STA_STOP");
+        break;
+      case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+        WIFI_TRACE_PRINTLN("STA_CONNECTED channel=%d authmode=%d ssid='%s'",
+            (int)info.wifi_sta_connected.channel,
+            (int)info.wifi_sta_connected.authmode,
+            (const char*)info.wifi_sta_connected.ssid);
+        break;
       case ARDUINO_EVENT_WIFI_STA_GOT_IP:
         MQTT_DEBUG_PRINTLN("WiFi connected: %s", IPAddress(info.got_ip.ip_info.ip.addr).toString().c_str());
+        WIFI_TRACE_PRINTLN("GOT_IP ip=%s netmask=%s gw=%s",
+            IPAddress(info.got_ip.ip_info.ip.addr).toString().c_str(),
+            IPAddress(info.got_ip.ip_info.netmask.addr).toString().c_str(),
+            IPAddress(info.got_ip.ip_info.gw.addr).toString().c_str());
+        #ifdef ESP_PLATFORM
+        logWifiSnapshot("got_ip");
+        #endif
         // Set flag to trigger NTP sync from loop() instead of doing it here
         if (!_ntp_synced && !_ntp_sync_pending) {
           _ntp_sync_pending = true;
         }
         break;
-      case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
-        s_wifi_disconnect_reason = info.wifi_sta_disconnected.reason;
-        s_wifi_disconnect_time = millis();
+      case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
+        const uint8_t ev_reason = info.wifi_sta_disconnected.reason;
+        const unsigned long now_ev = millis();
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+        const int8_t ev_rssi = info.wifi_sta_disconnected.rssi;
+#else
+        const int8_t ev_rssi = (int8_t)WiFi.RSSI();
+#endif
+        s_wifi_last_sta_rssi = ev_rssi;
+        const bool during_teardown = (now_ev < s_wifi_suppress_disconnect_diag_until);
+        if (during_teardown) {
+          WIFI_TRACE_PRINTLN("STA_DISCONNECTED (teardown/recycle, not updating last_reason) reason=%u rssi=%d",
+              (unsigned)ev_reason, (int)ev_rssi);
+          break;
+        }
+        s_wifi_disconnect_reason = ev_reason;
+        s_wifi_disconnect_time = now_ev;
         MQTT_DEBUG_PRINTLN("WiFi disconnected: reason %d", s_wifi_disconnect_reason);
+        {
+          const char* reason_desc = wifiReasonStr(s_wifi_disconnect_reason);
+          WIFI_TRACE_PRINTLN("STA_DISCONNECTED ssid='%s' reason=%u desc=%s rssi=%d",
+              (const char*)info.wifi_sta_disconnected.ssid,
+              (unsigned)s_wifi_disconnect_reason,
+              reason_desc ? reason_desc : "unknown",
+              (int)ev_rssi);
+        }
+        #ifdef ESP_PLATFORM
+        logWifiSnapshot("disconnected");
+        #endif
+        break;
+      }
+      case ARDUINO_EVENT_WIFI_STA_LOST_IP:
+        WIFI_TRACE_PRINTLN("STA_LOST_IP");
+        break;
+      case ARDUINO_EVENT_WIFI_SCAN_DONE:
+        WIFI_TRACE_PRINTLN("SCAN_DONE status=%d number=%u scan_id=%u",
+            (int)info.wifi_scan_done.status,
+            (unsigned)info.wifi_scan_done.number,
+            (unsigned)info.wifi_scan_done.scan_id);
         break;
       default:
+        WIFI_TRACE_PRINTLN("event=%d (unhandled)", (int)event);
         break;
     }
   });
 
+  WIFI_TRACE_PRINTLN("calling WiFi.begin('%s', pwd_len=%u)",
+      _prefs->wifi_ssid,
+      (unsigned)strlen(_prefs->wifi_password));
   WiFi.begin(_prefs->wifi_ssid, _prefs->wifi_password);
+  #ifdef ESP_PLATFORM
+  logWifiSnapshot("after begin");
+  #endif
 
   // NOTE: Slot setup is deferred until after NTP sync in mqttTaskLoop().
   // JWT-auth slots need valid timestamps for token creation, and connecting
@@ -1817,11 +1972,23 @@ bool MQTTBridge::handleWiFiConnection(unsigned long now) {
     if (current_wifi_status != WL_CONNECTED) {
       _wifi_disconnected_time = now;
     }
+    WIFI_TRACE_PRINTLN("wifi status initialized to %s(%d)",
+        wifiStatusStr(_last_wifi_status), (int)_last_wifi_status);
   }
   if (now - _last_wifi_check <= 10000) {
     return false;
   }
   _last_wifi_check = now;
+  WIFI_TRACE_PRINTLN("handleWiFiConnection now=%lu status=%s(%d) last=%s(%d) connected_at=%lu disc_at=%lu backoff=%u last_reason=%u",
+      now,
+      wifiStatusStr(current_wifi_status),
+      (int)current_wifi_status,
+      _wifi_status_initialized ? wifiStatusStr(_last_wifi_status) : "uninit",
+      _wifi_status_initialized ? (int)_last_wifi_status : -1,
+      s_wifi_connected_at,
+      _wifi_disconnected_time,
+      (unsigned)_wifi_reconnect_backoff_attempt,
+      (unsigned)s_wifi_disconnect_reason);
 
   if (current_wifi_status == WL_CONNECTED) {
     if (_last_wifi_status != WL_CONNECTED) {
@@ -1839,12 +2006,19 @@ bool MQTTBridge::handleWiFiConnection(unsigned long now) {
       } else {
         ps_mode = WIFI_PS_MIN_MODEM;
       }
-      esp_wifi_set_ps(ps_mode);
+      esp_err_t ps_result = esp_wifi_set_ps(ps_mode);
+      WIFI_TRACE_PRINTLN("connected transition: applying ps=%s pref=%s result=%d",
+          wifiPsModeStr(ps_mode),
+          wifiPsPrefStr(ps_pref),
+          (int)ps_result);
       #ifdef MQTT_WIFI_TX_POWER
       WiFi.setTxPower(MQTT_WIFI_TX_POWER);
+      WIFI_TRACE_PRINTLN("connected transition: applied tx_power macro value");
       #else
       WiFi.setTxPower(WIFI_POWER_11dBm);
+      WIFI_TRACE_PRINTLN("connected transition: applied tx_power=WIFI_POWER_11dBm");
       #endif
+      logWifiSnapshot("connected transition");
       #endif
     }
     if (s_wifi_connected_at == 0) {
@@ -1852,12 +2026,25 @@ bool MQTTBridge::handleWiFiConnection(unsigned long now) {
     }
     _last_wifi_status = WL_CONNECTED;
   } else {
+    // Latch the first disconnected timestamp even if WiFi never managed to
+    // connect after boot. Without this, initial auth/handshake failures can
+    // leave the manual reconnect path permanently disabled.
+    if (_wifi_disconnected_time == 0) {
+      _wifi_disconnected_time = now;
+      WIFI_TRACE_PRINTLN("wifi disconnected timer started at %lu", now);
+    }
+
     if (_last_wifi_status == WL_CONNECTED) {
+      const char* reason_desc = wifiReasonStr(s_wifi_disconnect_reason);
       _wifi_disconnected_time = now;
       s_wifi_connected_at = 0;
+      WIFI_TRACE_PRINTLN("wifi dropped after connected state reason=%u desc=%s",
+          (unsigned)s_wifi_disconnect_reason,
+          reason_desc ? reason_desc : "unknown");
       // Disconnect all slot clients when WiFi drops
       for (int i = 0; i < RUNTIME_MQTT_SLOTS; i++) {
         if (_slots[i].client && _slots[i].connected) {
+          WIFI_TRACE_PRINTLN("disconnecting MQTT slot %d due to WiFi drop", i + 1);
           _slots[i].client->disconnect();
         }
       }
@@ -1869,13 +2056,32 @@ bool MQTTBridge::handleWiFiConnection(unsigned long now) {
       unsigned long elapsed_since_attempt = (now >= _last_wifi_reconnect_attempt)
           ? (now - _last_wifi_reconnect_attempt)
           : (ULONG_MAX - _last_wifi_reconnect_attempt + now + 1);
+      WIFI_TRACE_PRINTLN("wifi still disconnected for %lu ms delay=%lu elapsed_since_attempt=%lu backoff_idx=%u",
+          disconnected_duration,
+          delay_ms,
+          elapsed_since_attempt,
+          (unsigned)idx);
       if (disconnected_duration >= delay_ms && elapsed_since_attempt >= delay_ms) {
         _last_wifi_reconnect_attempt = now;
         if (_wifi_reconnect_backoff_attempt < 5) {
           _wifi_reconnect_backoff_attempt++;
         }
+        WIFI_TRACE_PRINTLN("manual WiFi reconnect attempt #%u reason=%u status=%s(%d)",
+            (unsigned)_wifi_reconnect_backoff_attempt,
+            (unsigned)s_wifi_disconnect_reason,
+            wifiStatusStr(current_wifi_status),
+            (int)current_wifi_status);
+        #ifdef ESP_PLATFORM
+        logWifiSnapshot("before reconnect");
+        mqttBridgeHardRecycleWiFiStation();
+        WIFI_TRACE_PRINTLN("WiFi.begin() after hard recycle");
+        #else
         WiFi.disconnect();
+        #endif
         WiFi.begin(_prefs->wifi_ssid, _prefs->wifi_password);
+        #ifdef ESP_PLATFORM
+        logWifiSnapshot("after reconnect begin");
+        #endif
       }
     }
     _last_wifi_status = current_wifi_status;
