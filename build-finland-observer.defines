@@ -1,0 +1,9 @@
+# One build flag per line. Blank lines and comments are ignored.
+-D RADIO_RX_ONLY_DEFAULT=1
+-D DEFAULT_AIRTIME_FACTOR=9
+-D LORA_FREQ=869.6179809
+-D LORA_BW=62.5
+-D LORA_SF=8
+-D LORA_CR=8
+-D ADVERT_NAME='"FI MQTT Observer"'
+-D RADIO_WATCHDOG_MS=360000
