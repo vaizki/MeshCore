@@ -1,21 +1,29 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FINLAND_DEFINES_FILE="${BUILD_FINLAND_DEFINES_FILE:-${SCRIPT_DIR}/build-finland-observer.defines}"
+
+if [ ! -f "${FINLAND_DEFINES_FILE}" ]; then
+  echo "Missing Finland defines file: ${FINLAND_DEFINES_FILE}" >&2
+  exit 1
+fi
+
 usage() {
-  cat <<'EOF'
+  cat <<EOF
 Usage:
   sh build-finland-observer.sh <observer_env> [more_observer_envs...]
   sh build-finland-observer.sh all
 
 Description:
-  Builds one or more observer MQTT targets with Finland-specific defaults:
-    -D RADIO_RX_ONLY_DEFAULT=1
-    -D DEFAULT_AIRTIME_FACTOR=9
-    -D LORA_FREQ=869.6179809
-    -D LORA_BW=62.5
-    -D LORA_SF=8
-    -D LORA_CR=8
-    -D ADVERT_NAME="FI MQTT Observer"
+  Builds one or more observer MQTT targets with Finland-specific defaults
+  loaded from:
+    ${FINLAND_DEFINES_FILE}
+
+  File format:
+    - One build flag per line.
+    - Blank lines and lines starting with # are ignored.
+    - Example: -D DEFAULT_AIRTIME_FACTOR=9
 
   Build behavior:
     - Cleans each target env before building by default.
@@ -71,6 +79,21 @@ for section, options in data:
 for flag in flags:
     print(flag)
 ' "$env_name"
+}
+
+load_finland_flags() {
+  local line
+  FINLAND_FLAGS=()
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [[ "$line" =~ ^[[:space:]]*$ ]]; then
+      continue
+    fi
+    if [[ "$line" =~ ^[[:space:]]*# ]]; then
+      continue
+    fi
+    FINLAND_FLAGS+=("$line")
+  done < "${FINLAND_DEFINES_FILE}"
 }
 
 write_out_sidecars() {
@@ -131,8 +154,8 @@ write_out_sidecars() {
       fi
       echo "env_build_flags_end"
       echo
-      echo "# 2) Extra flags applied by Finland build script"
-      echo "script_finland_flags=${FINLAND_FLAGS}"
+      echo "# 2) Extra flags applied from ${FINLAND_DEFINES_FILE}"
+      echo "script_finland_flags=${FINLAND_FLAGS_STRING}"
       echo
       echo "# 3) Effective PLATFORMIO_BUILD_FLAGS used for build"
       echo "platformio_build_flags_env=${PLATFORMIO_BUILD_FLAGS}"
@@ -156,8 +179,9 @@ write_out_sidecars() {
   done
 }
 
-FINLAND_FLAGS="-D RADIO_RX_ONLY_DEFAULT=1 -D DEFAULT_AIRTIME_FACTOR=9 -D LORA_FREQ=869.6179809 -D LORA_BW=62.5 -D LORA_SF=8 -D LORA_CR=8 -D ADVERT_NAME='\"FI MQTT Observer\"'"
-export PLATFORMIO_BUILD_FLAGS="${PLATFORMIO_BUILD_FLAGS:-} ${FINLAND_FLAGS}"
+load_finland_flags
+FINLAND_FLAGS_STRING="${FINLAND_FLAGS[*]}"
+export PLATFORMIO_BUILD_FLAGS="${PLATFORMIO_BUILD_FLAGS:-} ${FINLAND_FLAGS_STRING}"
 
 TARGETS=()
 if [ "${1:-}" = "all" ]; then
