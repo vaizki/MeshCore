@@ -4,7 +4,10 @@
 
 #ifdef WITH_MQTT_BRIDGE
   #include <WiFi.h>
+  #include <helpers/bridges/MQTTBridge.h>
 #endif
+
+#include <helpers/CommonCLI.h>
 
 #define AUTO_OFF_MILLIS      20000  // 20 seconds
 #define BOOT_SCREEN_MILLIS   4000   // 4 seconds
@@ -74,12 +77,12 @@ void UITask::renderCurrScreen() {
     // freq / sf
     _display->setCursor(0, 20);
     _display->setColor(DisplayDriver::YELLOW);
-    sprintf(tmp, "FREQ: %06.3f SF%d", _node_prefs->freq, _node_prefs->sf);
+    sprintf(tmp, "%06.3f/%03.2f SF%d CR%d", _node_prefs->freq, _node_prefs->bw, _node_prefs->sf, _node_prefs->cr);
     _display->print(tmp);
 
-    // bw / cr
+    // firmware version
     _display->setCursor(0, 30);
-    sprintf(tmp, "BW: %03.2f CR: %d", _node_prefs->bw, _node_prefs->cr);
+    sprintf(tmp, "FW: %s", FIRMWARE_VERSION);
     _display->print(tmp);
 
 #ifdef WITH_MQTT_BRIDGE
@@ -91,6 +94,11 @@ void UITask::renderCurrScreen() {
       snprintf(tmp, sizeof(tmp), "IP: %d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
       _display->print(tmp);
     }
+    MQTTBridge::formatMqttStatusReply(tmp, sizeof(tmp), _node_prefs);
+    memcpy(tmp, "MQTT: ", sizeof("MQTT:"));
+    _display->setCursor(0, 50);
+    _display->setColor(DisplayDriver::LIGHT);
+    _display->print(tmp);
 #endif
   }
 }
