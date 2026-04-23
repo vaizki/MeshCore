@@ -1014,6 +1014,18 @@ void CommonCLI::handleSetCmd(uint32_t sender_timestamp, char* command, char* rep
     savePrefs();
     _callbacks->setRxBoostedGain(_prefs->rx_boosted_gain);
 #endif
+  } else if (memcmp(config, "radio.tx ", 9) == 0) {
+    if (memcmp(&config[9], "on", 2) == 0) {
+      _prefs->radio_tx_enabled = 1;
+    } else if (memcmp(&config[9], "off", 3) == 0) {
+      _prefs->radio_tx_enabled = 0;
+    } else {
+      strcpy(reply, "Error: must be on or off");
+      return;
+    }
+    savePrefs();
+    _callbacks->setRadioTxEnabled(_prefs->radio_tx_enabled != 0);
+    strcpy(reply, _prefs->radio_tx_enabled ? "OK - radio TX enabled" : "OK - radio TX disabled");
   } else if (memcmp(config, "radio ", 6) == 0) {
     strcpy(tmp, &config[6]);
     const char *parts[4];
@@ -1498,6 +1510,8 @@ void CommonCLI::handleGetCmd(uint32_t sender_timestamp, char* command, char* rep
   } else if (memcmp(config, "radio.rxgain", 12) == 0) {
     sprintf(reply, "> %s", _prefs->rx_boosted_gain ? "on" : "off");
 #endif
+  } else if (memcmp(config, "radio.tx", 8) == 0) {
+    sprintf(reply, "> %s", _prefs->radio_tx_enabled ? "on" : "off");
   } else if (memcmp(config, "radio", 5) == 0) {
     char freq[16], bw[16];
     strcpy(freq, StrHelper::ftoa(_prefs->freq));
