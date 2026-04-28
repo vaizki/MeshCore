@@ -31,6 +31,7 @@
     <li>Save your current private key before flashing!</li>
     <li>Flash the firmware to your device (first time use the merged firmware)</li>
     <li>Connect to the device console via serial (115200 baud) or repeater login</li>
+    <li>Set a new admin password with `password {new-password}`</li>
     <li>Set the device name and IATA/location code</li>
     <li>Set lat &amp; lon to get on the map</li>
     <li>Set the hash path mode to 1 for 2-byte IDs if in HEL region</li>
@@ -45,6 +46,7 @@
 <pre>
   <code>
     set prv.key &lt;your_64_hex_char_private_key&gt;
+    password my-new-password
     set name Banaanisatama-Repeater
     set path.hash.mode 1
     set mqtt.iata HEL
@@ -70,6 +72,7 @@
   <pre>
     <code>
       set prv.key &lt;your_64_hex_char_private_key&gt;
+      password my-new-password
       set name Banaanisatama-Observer
       set path.hash.mode 1
       set mqtt.iata HEL

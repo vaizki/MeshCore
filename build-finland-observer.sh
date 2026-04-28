@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FINLAND_DEFINES_FILE="${BUILD_FINLAND_DEFINES_FILE:-${SCRIPT_DIR}/build-finland-observer.defines}"
+INDEX_HEADER_FILE="${BUILD_FINLAND_INDEX_HEADER_FILE:-${SCRIPT_DIR}/build-finland-observer-index-header.html}"
 
 if [ ! -f "${FINLAND_DEFINES_FILE}" ]; then
   echo "Missing Finland defines file: ${FINLAND_DEFINES_FILE}" >&2
@@ -14,11 +15,17 @@ usage() {
 Usage:
   sh build-finland-observer.sh <observer_env> [more_observer_envs...]
   sh build-finland-observer.sh all
+  sh build-finland-observer.sh --index-only <observer_env> [more_observer_envs...]
+  sh build-finland-observer.sh --index-only all
 
 Description:
   Builds one or more observer MQTT targets with Finland-specific defaults
   loaded from:
     ${FINLAND_DEFINES_FILE}
+
+  --index-only:
+    - Skips clean/build.
+    - Regenerates metadata sidecars and out/index.html from existing out/ artifacts.
 
   File format:
     - One build flag per line.
@@ -36,6 +43,12 @@ Examples:
   sh build-finland-observer.sh all
 EOF
 }
+
+INDEX_ONLY=0
+if [ "${1:-}" = "--index-only" ]; then
+  INDEX_ONLY=1
+  shift
+fi
 
 if [ "${1:-}" = "help" ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ] || [ "$#" -lt 1 ]; then
   usage
@@ -81,6 +94,43 @@ for flag in flags:
 ' "$env_name"
 }
 
+get_artifact_prefix() {
+  local env="$1"
+  local sidecar_prefix=""
+  local merged_prefix=""
+  local artifact
+
+  # Pick sidecar prefix from versioned artifact basename:
+  # <env>-<firmware_version_and_hash>[ -merged ].<ext>
+  for artifact in out/"${env}-"*; do
+    [ -f "$artifact" ] || continue
+    case "$artifact" in
+      *.txt) continue ;;
+    esac
+    local base_name
+    base_name="$(basename "$artifact")"
+    local no_ext="${base_name%.*}"
+    case "$no_ext" in
+      *-merged)
+        [ -z "$merged_prefix" ] && merged_prefix="${no_ext%-merged}"
+        ;;
+      *)
+        sidecar_prefix="$no_ext"
+        break
+        ;;
+    esac
+  done
+
+  if [ -z "$sidecar_prefix" ] && [ -n "$merged_prefix" ]; then
+    sidecar_prefix="$merged_prefix"
+  fi
+  if [ -z "$sidecar_prefix" ]; then
+    sidecar_prefix="${env}"
+  fi
+
+  printf '%s\n' "$sidecar_prefix"
+}
+
 load_finland_flags() {
   local line
   FINLAND_FLAGS=()
@@ -101,37 +151,9 @@ write_out_sidecars() {
   for env in "$@"; do
     local env_flags
     env_flags="$(get_env_build_flags "$env")"
-    local sidecar_prefix=""
-    local merged_prefix=""
     local artifact
-
-    # Pick sidecar prefix from versioned artifact basename:
-    # <env>-<firmware_version_and_hash>[ -merged ].<ext>
-    for artifact in out/"${env}-"*; do
-      [ -f "$artifact" ] || continue
-      case "$artifact" in
-        *.txt) continue ;;
-      esac
-      local base_name
-      base_name="$(basename "$artifact")"
-      local no_ext="${base_name%.*}"
-      case "$no_ext" in
-        *-merged)
-          [ -z "$merged_prefix" ] && merged_prefix="${no_ext%-merged}"
-          ;;
-        *)
-          sidecar_prefix="$no_ext"
-          break
-          ;;
-      esac
-    done
-
-    if [ -z "$sidecar_prefix" ] && [ -n "$merged_prefix" ]; then
-      sidecar_prefix="$merged_prefix"
-    fi
-    if [ -z "$sidecar_prefix" ]; then
-      sidecar_prefix="${env}"
-    fi
+    local sidecar_prefix
+    sidecar_prefix="$(get_artifact_prefix "$env")"
 
     local sidecar="out/${sidecar_prefix}-info.txt"
     rm -f "out/${env}-build-flags.txt"
@@ -179,6 +201,97 @@ write_out_sidecars() {
   done
 }
 
+html_link_or_dash() {
+  local file_path="$1"
+  if [ -f "$file_path" ]; then
+    local file_name
+    file_name="$(basename "$file_path")"
+    printf '<a href="%s">%s</a>' "$file_name" "$file_name"
+  else
+    printf '&mdash;'
+  fi
+}
+
+write_artifact_index_html() {
+  local generated_utc
+  generated_utc="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  local script_name
+  script_name="$(basename "$0")"
+  local header_html=""
+
+  if [ -f "${INDEX_HEADER_FILE}" ]; then
+    header_html="$(sed \
+      -e "s|{{GENERATED_UTC}}|${generated_utc}|g" \
+      -e "s|{{SCRIPT_NAME}}|${script_name}|g" \
+      "${INDEX_HEADER_FILE}")"
+  fi
+
+  {
+    cat <<EOF
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Finland Observer Firmware Artifacts</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; margin: 2rem; line-height: 1.4; }
+    table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+    th, td { border: 1px solid #ddd; padding: 0.5rem; text-align: left; }
+    th { background: #f5f5f5; }
+    td code { white-space: nowrap; }
+    pre, pre code { white-space: pre-wrap; }
+    .instructions { margin-top: 1.25rem; margin-bottom: 1.5rem; }
+  </style>
+</head>
+<body>
+  <h1>Finland Observer Firmware Artifacts</h1>
+EOF
+    if [ -n "$header_html" ]; then
+      printf '%s\n' "$header_html"
+    fi
+
+    cat <<EOF
+  <table>
+    <thead>
+      <tr>
+        <th>Env</th>
+        <th>Info (.txt)</th>
+        <th>Firmware (.bin)</th>
+        <th>Merged Firmware (-merged.bin)</th>
+      </tr>
+    </thead>
+    <tbody>
+EOF
+
+    local env
+    for env in "$@"; do
+      local prefix
+      prefix="$(get_artifact_prefix "$env")"
+      local info_file="out/${prefix}-info.txt"
+      local bin_file="out/${prefix}.bin"
+      local merged_file="out/${prefix}-merged.bin"
+
+      local info_link
+      info_link="$(html_link_or_dash "$info_file")"
+      local bin_link
+      bin_link="$(html_link_or_dash "$bin_file")"
+      local merged_link
+      merged_link="$(html_link_or_dash "$merged_file")"
+
+      printf '      <tr><td><code>%s</code></td><td>%s</td><td>%s</td><td>%s</td></tr>\n' \
+        "$env" "$info_link" "$bin_link" "$merged_link"
+    done
+
+    cat <<EOF
+    </tbody>
+  </table>
+</body>
+</html>
+EOF
+  } > out/index.html
+}
+
 load_finland_flags
 FINLAND_FLAGS_STRING="${FINLAND_FLAGS[*]}"
 export PLATFORMIO_BUILD_FLAGS="${PLATFORMIO_BUILD_FLAGS:-} ${FINLAND_FLAGS_STRING}"
@@ -195,8 +308,16 @@ else
 fi
 
 if [ "${SKIP_CLEAN:-0}" != "1" ]; then
-  clean_targets "${TARGETS[@]}"
+  if [ "${INDEX_ONLY}" != "1" ]; then
+    clean_targets "${TARGETS[@]}"
+  fi
 fi
 
-sh build.sh build-firmware "${TARGETS[@]}"
+mkdir -p out
+
+if [ "${INDEX_ONLY}" != "1" ]; then
+  sh build.sh build-firmware "${TARGETS[@]}"
+fi
+
 write_out_sidecars "${TARGETS[@]}"
+write_artifact_index_html "${TARGETS[@]}"
